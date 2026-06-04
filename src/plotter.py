@@ -1,7 +1,9 @@
+import matplotlib
+matplotlib.use('Agg')
+
 import matplotlib.pyplot as plt
 import os
 
-# Get project root for saving plots
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PLOTS_DIR = os.path.join(PROJECT_ROOT, 'plots')
 

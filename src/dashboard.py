@@ -1,13 +1,8 @@
 from flask import Flask, render_template, request, jsonify, send_from_directory
 from flask_login import LoginManager, login_required, current_user
 import os
-import sys
 import json
 import numpy as np
-
-# Add src directory to path for imports
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
 from session_loader import load_session
 from telemetry import get_fastest_lap_telemetry, get_fastest_lap
 from analytics import get_driver_stats, get_sector_analysis, get_throttle_brake_zones
@@ -147,8 +142,8 @@ def analyze_driver():
             }
         }
         
-        # Save analysis if requested and user is logged in
-        if data.get('save') and current_user.is_authenticated:
+        # Save analysis if requested
+        if data.get('save'):
             from models import Analysis
             analysis = Analysis(
                 user_id=current_user.id,
@@ -163,8 +158,6 @@ def analyze_driver():
             db.session.add(analysis)
             db.session.commit()
             result['analysis_id'] = analysis.id
-        elif data.get('save') and not current_user.is_authenticated:
-            result['message'] = 'Please login to save analysis'
         
         return jsonify(result)
     
@@ -177,13 +170,10 @@ def compare_drivers():
     """Compare multiple drivers"""
     try:
         data = request.json
-        if not data.get('drivers') or len(data['drivers']) < 2:
-            return jsonify({"error": "Please select at least 2 drivers to compare"}), 400
-        
         year = int(data['year'])
         race = data['race']
         session_type = data['session']
-        drivers = data['drivers'][:3]  # Limit to 3 drivers to avoid timeout
+        drivers = data['drivers']
         
         # Load session
         session = load_session(year, race, session_type)
@@ -238,25 +228,6 @@ def compare_drivers():
             }
         }
         
-        # Save comparison if requested and user is logged in
-        if data.get('save') and current_user.is_authenticated:
-            from models import Analysis
-            analysis = Analysis(
-                user_id=current_user.id,
-                year=year,
-                race=race,
-                session_type=session_type,
-                analysis_type='comparison',
-                drivers=','.join(drivers),
-                results=json.dumps(result),
-                notes=data.get('notes', '')
-            )
-            db.session.add(analysis)
-            db.session.commit()
-            result['analysis_id'] = analysis.id
-        elif data.get('save') and not current_user.is_authenticated:
-            result['message'] = 'Please login to save analysis'
-        
         return jsonify(result)
     
     except Exception as e:
@@ -273,10 +244,4 @@ def serve_plot(filename):
 if __name__ == '__main__':
     # Create plots directory if it doesn't exist
     os.makedirs(os.path.join(project_root, 'plots'), exist_ok=True)
-    
-    # Create database tables
-    with app.app_context():
-        db.create_all()
-        print("[OK] Database tables created/verified")
-    
     app.run(debug=True, port=5000)
