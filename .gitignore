@@ -42,9 +42,8 @@ wheels/
 plots/*.png
 plots/*.jpg
 
-# FastF1 Cache (optional - cache data locally)
-# Uncomment below to cache F1 data
-# data/
+# FastF1 Cache
+data/
 
 # Environment variables
 .env
