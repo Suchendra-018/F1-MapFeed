@@ -5,6 +5,7 @@ let currentDrivers = [];
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', function() {
+    if (document.getElementById('intelligenceApp')) return;
     loadSessions();
     setupEventListeners();
 });
@@ -70,7 +71,7 @@ async function onSessionSelected(e) {
             driverSelect.appendChild(option);
         });
         
-        currentDrivers = drivers.map(d => d.code);
+        currentDrivers = drivers;
         updateCompareModal();
     } catch (error) {
         console.error('Error loading drivers:', error);
@@ -230,9 +231,10 @@ function updateCompareModal() {
         const div = document.createElement('div');
         div.className = 'form-check';
         div.innerHTML = `
-            <input class="form-check-input" type="checkbox" value="${driver}" id="driver_${driver}">
-            <label class="form-check-label" for="driver_${driver}">
-                ${driver}
+            <input class="form-check-input" type="checkbox" value="${driver.code}"
+id="driver_${driver.code}">
+            <label class="form-check-label" for="driver_${driver.code}">
+                ${driver.name}
             </label>
         `;
         checkboxContainer.appendChild(div);
@@ -359,3 +361,43 @@ function displayComparison(drivers, data) {
     
     mainContent.innerHTML = html;
 }
+
+// Integrated performance intelligence dashboard (keeps legacy analysis endpoints intact).
+(() => {
+    const $ = id => document.getElementById(id);
+    let state = { event: null, drivers: [] };
+    const fetchJson = async (url, options) => { const response = await fetch(url, options); const data = await response.json(); if (!response.ok || data.error) throw new Error(data.error || 'Request failed'); return data; };
+    const option = (value, text) => `<option value="${value}">${text}</option>`;
+    const pace = value => value == null ? '—' : `${value.toFixed(3)}s`;
+    const status = (text, loading = false) => { $('intelStatus').textContent = text; $('intelStatus').classList.toggle('loading', loading); };
+    const payload = () => ({ year: +$('intelYear').value, race: state.event.name, session: $('intelType').value });
+
+    async function years() {
+        try { const data = await fetchJson('/api/years'); $('intelYear').innerHTML = '<option value="">Season</option>' + data.reverse().map(y => option(y, y)).join(''); $('intelYear').value = data[0]; events(); } catch (error) { status(error.message); }
+    }
+    async function events() {
+        const year = $('intelYear').value; $('intelEvent').disabled = !year; $('intelType').disabled = true; $('intelLoad').disabled = true; $('intelEvent').innerHTML = '<option>Loading calendar…</option>';
+        if (!year) return;
+        try { const data = await fetchJson(`/api/events/${year}`); $('intelEvent').innerHTML = '<option value="">Grand Prix</option>' + data.map(e => option(e.round, `${e.round}. ${e.name}`)).join(''); } catch (error) { status(error.message); }
+    }
+    async function sessionTypes() {
+        const year = $('intelYear').value, round = $('intelEvent').value; $('intelType').disabled = !round; $('intelLoad').disabled = true;
+        if (!round) return;
+        try { const data = await fetchJson(`/api/sessions/${year}/${round}`); state.event = data.event; $('intelType').innerHTML = data.sessions.map(s => option(s.code, s.name)).join(''); $('intelLoad').disabled = false; } catch (error) { status(error.message); }
+    }
+    function kpis(summary) { const items = [['FASTEST DRIVER',summary.fastest_driver,pace(summary.fastest_lap)],['HIGHEST SPEED',summary.highest_speed_driver,summary.highest_speed ? `${summary.highest_speed} km/h` : '—'],['MOST CONSISTENT',summary.most_consistent_driver,summary.consistency ? `${summary.consistency}/100` : '—'],['DRIVERS ANALYSED',summary.drivers_analysed,'representative laps'],['TEAMS ANALYSED',summary.teams_analysed,summary.best_team || '—']]; $('intelKpis').innerHTML = items.map(x => `<article class="intel-kpi"><small>${x[0]}</small><strong>${x[1]}</strong><span>${x[2]}</span></article>`).join(''); }
+    function render(data) {
+        kpis(data.summary); $('intelLeaderboard').innerHTML = data.drivers.map(d => `<tr><td>${d.rank}</td><td><b>${d.code}</b><small>${d.name} · #${d.number}</small></td><td>${d.team}</td><td>${d.max_speed ? d.max_speed+' km/h' : '—'}</td><td>${d.avg_speed ? d.avg_speed+' km/h' : '—'}</td><td class="intel-score">${d.consistency ?? '—'}</td></tr>`).join('');
+        $('intelSectors').innerHTML = data.sectors.map(s => `<div class="intel-card-row"><div><small>${s.sector}</small><strong>${s.driver}</strong></div><span>${pace(s.time)}</span></div>`).join('');
+        $('intelTeams').innerHTML = data.teams.map(t => `<div class="intel-card-row"><div><strong>${t.team}</strong><small>${t.best_driver} · ${t.drivers} drivers</small></div><span>${pace(t.average_pace)}</span></div>`).join('');
+        $('intelDrivers').innerHTML = data.drivers.map(d => `<label class="intel-driver"><input type="checkbox" value="${d.code}"><span><b>${d.code} — ${d.name}</b><small>${d.team} · #${d.number}</small></span></label>`).join('');
+        $('intelDrivers').querySelectorAll('input').forEach(input => input.addEventListener('change', () => { $('intelCompare').disabled = $('intelDrivers').querySelectorAll(':checked').length < 2; if (input.checked) analysis(input.value); }));
+    }
+    async function load() {
+        status('Loading FastF1 timing, lap and telemetry data… this can take a moment on the first request.', true); $('intelDashboard').hidden = true;
+        try { const data = await fetchJson('/api/session-overview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload())}); state.drivers=data.drivers; render(data); $('intelMeta').textContent = `${state.event.name} · ${$('intelType').selectedOptions[0].text}`; $('intelSessionLabel').textContent = `${$('intelYear').value} · ${state.event.name.toUpperCase()}`; $('intelDashboard').hidden=false; status('Session intelligence loaded. Choose drivers for a focused comparison.'); } catch(error) { status(`Could not load this session: ${error.message}`); }
+    }
+    async function compare() { const drivers=[...$('intelDrivers').querySelectorAll(':checked')].map(i=>i.value); status('Comparing selected drivers…',true); try { const data=await fetchJson('/api/compare-drivers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...payload(),drivers})}); $('intelComparison').innerHTML=`<div class="intel-table"><table><thead><tr><th>DRIVER</th><th>TOP SPEED</th><th>AVG SPEED</th><th>AVG PACE</th><th>FASTEST LAP</th></tr></thead><tbody>${drivers.map(d=>`<tr><td>${d}</td><td>${data.speed_comparison[d]?.max_speed ?? '—'} km/h</td><td>${data.speed_comparison[d]?.avg_speed ?? '—'} km/h</td><td>${data.race_pace[d]?.avg_pace ?? '—'}s</td><td>${data.race_pace[d]?.fastest_lap ?? '—'}s</td></tr>`).join('')}</tbody></table></div><div class="intel-plots"><figure><img src="/plots/${data.plots.comparison}?t=${Date.now()}" alt="Driver comparison telemetry plot"></figure></div>`; status('Comparison ready.'); }catch(error){status(error.message)} }
+    async function analysis(driver) { $('intelAnalysis').innerHTML='Loading fastest-lap telemetry…'; try { const data=await fetchJson('/api/driver-analysis',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...payload(),driver})}); $('intelAnalysis').innerHTML=`<div class="intel-metrics">${[['MAX SPEED',data.stats.max_speed+' km/h'],['AVG SPEED',data.stats.avg_speed+' km/h'],['AVG THROTTLE',data.stats.avg_throttle+'%'],['MAX RPM',data.stats.max_rpm]].map(m=>`<div class="intel-metric"><small>${m[0]}</small><b>${m[1]}</b></div>`).join('')}</div><div class="intel-plots"><figure><img src="/plots/${data.plots.speed_graph}?t=${Date.now()}" alt="Speed graph"></figure><figure><img src="/plots/${data.plots.speed_heatmap}?t=${Date.now()}" alt="Speed heatmap"></figure><figure><img src="/plots/${data.plots.track_map}?t=${Date.now()}" alt="Track map"></figure></div>`; }catch(error){$('intelAnalysis').textContent=error.message} }
+    document.addEventListener('DOMContentLoaded',()=>{ years(); $('intelYear').addEventListener('change',events); $('intelEvent').addEventListener('change',sessionTypes); $('intelLoad').addEventListener('click',load); $('intelCompare').addEventListener('click',compare); });
+})();

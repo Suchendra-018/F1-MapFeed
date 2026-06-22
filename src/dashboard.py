@@ -1,13 +1,14 @@
 from flask import Flask, render_template, request, jsonify, send_from_directory
-from flask_login import LoginManager, login_required, current_user
+from flask_login import LoginManager, current_user
 import os
 import json
 import numpy as np
-from session_loader import load_session
+from session_loader import load_session, get_events
+from session_analytics import driver_directory, build_session_overview
 from telemetry import get_fastest_lap_telemetry, get_fastest_lap
 from analytics import get_driver_stats, get_sector_analysis, get_throttle_brake_zones
 from trackmap import create_track_map, create_speed_heatmap
-from plotter import plot_speed_graph
+from plotter import plot_speed_graph, plot_control_analysis
 from comparison import get_multiple_drivers_telemetry, compare_driver_speeds, plot_driver_comparison, get_race_pace_analysis
 from models import db, User
 from auth import auth_bp
@@ -16,24 +17,12 @@ from history import history_bp
 # Get the project root directory
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# Custom JSON encoder for numpy/pandas types
-class NumpyEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, np.integer):
-            return int(obj)
-        elif isinstance(obj, np.floating):
-            return float(obj)
-        elif isinstance(obj, np.ndarray):
-            return obj.tolist()
-        return super().default(obj)
-
 app = Flask(
     __name__,
     template_folder=os.path.join(project_root, 'templates'),
     static_folder=os.path.join(project_root, 'static')
 )
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # Disable caching for development
-app.json_encoder = NumpyEncoder
 
 # Database configuration
 db_path = os.path.join(project_root, 'f1mapfeed.db')
@@ -58,20 +47,33 @@ app.register_blueprint(history_bp)
 
 @app.route('/')
 def index():
-    """Home page with session and driver selection"""
-    return render_template('index.html')
+    return render_template('platform.html')
 
 
-@app.route('/api/sessions')
-def get_sessions():
-    """Return available F1 sessions"""
-    # For now, hardcode some popular sessions
-    sessions = [
-        {"year": 2025, "race": "Monaco Grand Prix", "session": "R", "display": "Monaco 2025 - Race"},
-        {"year": 2025, "race": "Monaco Grand Prix", "session": "Q", "display": "Monaco 2025 - Qualifying"},
-        {"year": 2024, "race": "Silverstone Grand Prix", "session": "R", "display": "Silverstone 2024 - Race"},
-    ]
-    return jsonify(sessions)
+@app.route('/api/years')
+def get_years():
+    return jsonify(list(range(2018, 2027)))
+
+
+@app.route('/api/events/<int:year>')
+def get_session_events(year):
+    try:
+        return jsonify(get_events(year))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/sessions/<int:year>/<int:round_number>')
+def get_session_types(year, round_number):
+    try:
+        event = next(event for event in get_events(year) if event["round"] == round_number)
+        available = [{"code": "R", "name": "Race"}, {"code": "Q", "name": "Qualifying"}, {"code": "FP1", "name": "Practice 1"}, {"code": "FP2", "name": "Practice 2"}, {"code": "FP3", "name": "Practice 3"}]
+        # The exact Sprint status is validated by FastF1 at load time. Keeping this
+        # selector local means it works when a schedule provider is offline.
+        available.insert(2, {"code": "S", "name": "Sprint (where scheduled)"})
+        return jsonify({"event": event, "sessions": available})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route('/api/drivers/<year>/<race>/<session_type>')
@@ -79,9 +81,19 @@ def get_drivers(year, race, session_type):
     """Get available drivers for a session"""
     try:
         session = load_session(int(year), race, session_type)
-        drivers = session.drivers
-        driver_list = [{"code": d, "name": session.get_driver(d).name} for d in drivers]
-        return jsonify(driver_list)
+
+        return jsonify(driver_directory(session))
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/session-overview', methods=['POST'])
+def session_overview():
+    try:
+        data = request.get_json()
+        session = load_session(int(data['year']), data['race'], data['session'])
+        return jsonify(build_session_overview(session))
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -97,7 +109,7 @@ def analyze_driver():
         driver_code = data['driver']
         
         # Load session and telemetry
-        session = load_session(year, race, session_type)
+        session = load_session(year, race, session_type, telemetry=True)
         telemetry = get_fastest_lap_telemetry(session, driver_code)
         lap = get_fastest_lap(session, driver_code)
         
@@ -108,6 +120,7 @@ def analyze_driver():
         
         # Generate visualizations
         plot_speed_graph(telemetry)
+        plot_control_analysis(telemetry)
         create_track_map(lap)
         create_speed_heatmap(lap, telemetry)
         
@@ -137,6 +150,7 @@ def analyze_driver():
             "throttle_brake": throttle_brake_converted,
             "plots": {
                 "speed_graph": "speed_graph.png",
+                "control_analysis": "control_analysis.png",
                 "track_map": "track_map.png",
                 "speed_heatmap": "speed_heatmap.png"
             }
@@ -176,7 +190,7 @@ def compare_drivers():
         drivers = data['drivers']
         
         # Load session
-        session = load_session(year, race, session_type)
+        session = load_session(year, race, session_type, telemetry=True)
         
         # Get telemetry for all drivers
         telemetry_dict = get_multiple_drivers_telemetry(session, drivers)

@@ -207,3 +207,41 @@ assets/comparison.png
 Information Science Engineering Student
 
 Interested in Data Analytics, Software Development, and Formula 1 Technology.
+# F1 MapFeed — Formula 1 Intelligence Platform
+
+F1 MapFeed is a FastF1-powered analytics workspace for session-level Formula 1 performance intelligence. The active application is a responsive, sidebar-first command center with dark and light themes, designed around readable race analytics rather than a form workflow.
+
+## Active experience
+
+- Command Center with large KPI cards, driver rankings, team performance and sector leaders
+- Driver Analytics with driver, team, pace, top-speed and consistency metrics
+- Constructor and Race Analytics views driven by the selected FastF1 session
+- Session Explorer controls for season, Grand Prix and session selection
+- Dark/light theme preference saved in browser local storage
+- Lightweight dashboard loading; detailed telemetry stays on-demand
+
+## Run locally
+
+```bash
+venv\Scripts\activate
+python src\dashboard.py
+```
+
+Open `http://127.0.0.1:5000`. When offline, start with a completed cached session such as 2025 Monaco Race.
+
+## Active architecture
+
+```text
+src/
+  dashboard.py          Flask application and API routes
+  session_loader.py     FastF1 session and calendar cache
+  session_analytics.py  Driver, team, sector and KPI calculations
+  calendar_fallback.py  Offline calendar fallback
+static/
+  css/theme.css         Global dark/light tokens and responsive layout
+  js/platform_client.js Active analytics workspace
+templates/
+  platform.html         Active analytics shell
+```
+
+---

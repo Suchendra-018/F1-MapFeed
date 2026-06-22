@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>F1 MapFeed | Championship Intelligence</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/theme.css?v=20260622-telemetry">
+</head>
+<body>
+  <div class="platform" id="platform">
+    <aside class="side"><div class="logo"><b>F1</b><span>MAPFEED<small>CHAMPIONSHIP INTELLIGENCE</small></span></div><div class="nav-label">ANALYTICS WORKSPACE</div>
+      <button class="nav-item active" data-view="home"><span class="nav-icon">01</span><span>Home</span></button><button class="nav-item" data-view="drivers"><span class="nav-icon">02</span><span>Driver Analytics</span></button><button class="nav-item" data-view="constructors"><span class="nav-icon">03</span><span>Constructor Analytics</span></button><button class="nav-item" data-view="race"><span class="nav-icon">04</span><span>Race Analytics</span></button><button class="nav-item" data-view="championship"><span class="nav-icon">05</span><span>Championship Tracker</span></button><button class="nav-item" data-view="predictions"><span class="nav-icon">06</span><span>Predictions</span></button><button class="nav-item" data-view="historical"><span class="nav-icon">07</span><span>Historical Analytics</span></button><button class="nav-item" data-view="explorer"><span class="nav-icon">08</span><span>Session Explorer</span></button>
+      <div class="nav-label">PREFERENCES</div><button class="nav-item" id="themeToggle"><span class="nav-icon">◐</span><span>Toggle theme</span></button>
+    </aside>
+    <main class="main"><header class="top"><div><div class="eyebrow">FORMULA 1 INTELLIGENCE PLATFORM</div><h1 id="title">Command center</h1></div><div class="session-select"><select id="year"></select><select id="event" disabled><option>Grand Prix</option></select><select id="session" disabled><option>Session</option></select><button id="load" disabled>Load</button></div></header><div id="status" class="notice">Loading season calendar…</div><section id="home" class="view"></section><section id="drivers" class="view" hidden></section><section id="constructors" class="view" hidden></section><section id="race" class="view" hidden></section><section id="championship" class="view" hidden></section><section id="predictions" class="view" hidden></section><section id="historical" class="view" hidden></section><section id="explorer" class="view" hidden></section></main>
+  </div><script src="/static/js/platform_client.js?v=20260622-telemetry"></script>
+</body></html>

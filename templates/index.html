@@ -6,6 +6,7 @@
     <title>F1 MapFeed - Telemetry Analytics</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/platform.css">
 </head>
 <body>
     <nav class="navbar navbar-dark bg-dark">
@@ -78,7 +79,13 @@
         </div>
     </div>
 
+    <main id="intelligenceApp" class="intelligence-app">
+        <header class="intel-header"><a href="/" class="intel-brand"><b>F1</b><span>MAPFEED <small>PERFORMANCE INTELLIGENCE</small></span></a><span id="intelSessionLabel">SELECT A SESSION TO BEGIN</span></header>
+        <section class="intel-controls intel-panel"><div><em>DATA CONTROLS</em><div class="intel-selects"><label>SEASON<select id="intelYear"></select></label><label>GRAND PRIX<select id="intelEvent" disabled><option>Choose a season</option></select></label><label>SESSION<select id="intelType" disabled><option>Choose a Grand Prix</option></select></label></div></div><button id="intelLoad" disabled>LOAD DASHBOARD →</button></section>
+        <div id="intelStatus" class="intel-status">Choose a season, Grand Prix and session. FastF1 data is loaded on demand.</div>
+        <div id="intelDashboard" hidden><section class="intel-heading"><div><em>SESSION COMMAND CENTER</em><h1>Performance at a glance</h1></div><span id="intelMeta"></span></section><section id="intelKpis" class="intel-kpis"></section><section class="intel-grid"><div class="intel-panel intel-table"><h2>Driver leaderboard</h2><table><thead><tr><th>#</th><th>DRIVER</th><th>TEAM</th><th>TOP SPEED</th><th>AVG SPEED</th><th>CONSISTENCY</th></tr></thead><tbody id="intelLeaderboard"></tbody></table></div><div class="intel-panel intel-side"><h2>Sector leaders</h2><div id="intelSectors"></div><h2>Team analytics</h2><div id="intelTeams"></div></div></section><section class="intel-panel intel-workspace"><div><em>HEAD-TO-HEAD</em><h2>Compare drivers</h2><p>Pick two or more drivers from this session. No modal detour.</p></div><button id="intelCompare" disabled>COMPARE SELECTED</button><div id="intelDrivers" class="intel-drivers"></div><div id="intelComparison"></div></section><section class="intel-panel intel-analysis"><em>LAP TELEMETRY</em><h2>Driver analysis</h2><div id="intelAnalysis">Choose a driver from the comparison workspace to inspect their fastest lap.</div></section></div>
+    </main>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="/static/js/app.js"></script>
+    <script src="/static/js/platform.js"></script>
 </body>
 </html>
