@@ -10,8 +10,10 @@ for proxy_name in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
     if "127.0.0.1:9" in os.environ.get(proxy_name, ""):
         os.environ.pop(proxy_name, None)
 
-# Reuse downloaded FastF1 timing and telemetry between requests.
-fastf1.Cache.enable_cache("data")
+# Create cache directory if it doesn't exist
+CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
+os.makedirs(CACHE_DIR, exist_ok=True)
+fastf1.Cache.enable_cache(CACHE_DIR)
 
 SUPPORTED_YEARS = (2024, 2025)
 
