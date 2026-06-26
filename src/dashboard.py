@@ -1,15 +1,13 @@
-from flask import Flask, render_template, request, jsonify, send_from_directory
+from flask import Flask, jsonify, render_template, request
 from flask_login import LoginManager, current_user
 import os
 import json
 import numpy as np
-from session_loader import load_session, get_events
-from session_analytics import driver_directory, build_session_overview
+from session_loader import load_session, get_events, get_available_years
+from session_analytics import build_session_overview, driver_directory, json_safe
 from telemetry import get_fastest_lap_telemetry, get_fastest_lap
 from analytics import get_driver_stats, get_sector_analysis, get_throttle_brake_zones
-from trackmap import create_track_map, create_speed_heatmap
-from plotter import plot_speed_graph, plot_control_analysis
-from comparison import get_multiple_drivers_telemetry, compare_driver_speeds, plot_driver_comparison, get_race_pace_analysis
+from comparison import build_comparison
 from models import db, User
 from auth import auth_bp
 from history import history_bp
@@ -52,7 +50,7 @@ def index():
 
 @app.route('/api/years')
 def get_years():
-    return jsonify(list(range(2018, 2027)))
+    return jsonify(get_available_years())
 
 
 @app.route('/api/events/<int:year>')
@@ -67,10 +65,9 @@ def get_session_events(year):
 def get_session_types(year, round_number):
     try:
         event = next(event for event in get_events(year) if event["round"] == round_number)
-        available = [{"code": "R", "name": "Race"}, {"code": "Q", "name": "Qualifying"}, {"code": "FP1", "name": "Practice 1"}, {"code": "FP2", "name": "Practice 2"}, {"code": "FP3", "name": "Practice 3"}]
-        # The exact Sprint status is validated by FastF1 at load time. Keeping this
-        # selector local means it works when a schedule provider is offline.
-        available.insert(2, {"code": "S", "name": "Sprint (where scheduled)"})
+        # Qualifying and Race have the most complete, consistent FastF1 timing
+        # coverage. Other session types are intentionally out of scope.
+        available = [{"code": "Q", "name": "Qualifying"}, {"code": "R", "name": "Race"}]
         return jsonify({"event": event, "sessions": available})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -93,7 +90,7 @@ def session_overview():
     try:
         data = request.get_json()
         session = load_session(int(data['year']), data['race'], data['session'])
-        return jsonify(build_session_overview(session))
+        return jsonify(json_safe(build_session_overview(session)))
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -118,11 +115,24 @@ def analyze_driver():
         sectors = get_sector_analysis(lap)
         throttle_brake = get_throttle_brake_zones(telemetry)
         
-        # Generate visualizations
-        plot_speed_graph(telemetry)
-        plot_control_analysis(telemetry)
-        create_track_map(lap)
-        create_speed_heatmap(lap, telemetry)
+        # Browser-native Plotly figures replace shared PNG files.  Shared files
+        # were prone to requests overwriting each other's analysis output.
+        chart_layout = {"template": "plotly_dark", "margin": {"l": 40, "r": 15, "t": 45, "b": 35}}
+        speed_chart = {"data": [{"x": telemetry["Distance"].tolist(), "y": telemetry["Speed"].tolist(), "type": "scatter", "mode": "lines", "name": "Speed"}],
+                       "layout": {**chart_layout, "title": "Speed trace", "xaxis": {"title": "Distance (m)"}, "yaxis": {"title": "Speed (km/h)"}}}
+        throttle_chart = {
+            "data": [{"x": telemetry["Distance"].tolist(), "y": telemetry["Throttle"].tolist(), "type": "scatter", "mode": "lines", "name": "Throttle"}],
+            "layout": {**chart_layout, "title": "Throttle trace", "xaxis": {"title": "Distance (m)"}, "yaxis": {"title": "Throttle (%)", "range": [0, 100]}},
+        }
+        brake_values = (telemetry["Brake"].astype(int) * 100).tolist() if "Brake" in telemetry else []
+        brake_chart = {
+            "data": [{"x": telemetry["Distance"].tolist(), "y": brake_values, "type": "scatter", "mode": "lines", "name": "Brake"}],
+            "layout": {**chart_layout, "title": "Brake trace", "xaxis": {"title": "Distance (m)"}, "yaxis": {"title": "Brake (%)", "range": [0, 100]}},
+        }
+        track_chart = {
+            "data": [{"x": telemetry["X"].tolist(), "y": telemetry["Y"].tolist(), "type": "scatter", "mode": "markers", "marker": {"size": 4, "color": telemetry["Speed"].tolist(), "colorscale": "Turbo", "colorbar": {"title": "km/h"}}, "name": "Track speed"}],
+            "layout": {**chart_layout, "title": "Track map · speed overlay", "xaxis": {"visible": False}, "yaxis": {"visible": False, "scaleanchor": "x", "scaleratio": 1}},
+        }
         
         # Format sector times
         sector_data = {}
@@ -148,12 +158,7 @@ def analyze_driver():
             "stats": {k: round(v, 2) if isinstance(v, float) else v for k, v in stats_converted.items()},
             "sectors": sector_data,
             "throttle_brake": throttle_brake_converted,
-            "plots": {
-                "speed_graph": "speed_graph.png",
-                "control_analysis": "control_analysis.png",
-                "track_map": "track_map.png",
-                "speed_heatmap": "speed_heatmap.png"
-            }
+            "charts": {"speed": speed_chart, "throttle": throttle_chart, "brake": brake_chart, "track": track_chart}
         }
         
         # Save analysis if requested
@@ -173,7 +178,7 @@ def analyze_driver():
             db.session.commit()
             result['analysis_id'] = analysis.id
         
-        return jsonify(result)
+        return jsonify(json_safe(result))
     
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -188,74 +193,16 @@ def compare_drivers():
         race = data['race']
         session_type = data['session']
         drivers = data['drivers']
+        if not isinstance(drivers, list) or len(drivers) != 2:
+            return jsonify({"error": "Select exactly two drivers to compare."}), 400
         
         # Load session
         session = load_session(year, race, session_type, telemetry=True)
         
-        # Get telemetry for all drivers
-        telemetry_dict = get_multiple_drivers_telemetry(session, drivers)
-        
-        # Get comparison stats
-        speed_comparison = compare_driver_speeds(telemetry_dict)
-        race_pace = get_race_pace_analysis(session, drivers)
-        
-        # Generate comparison plot
-        if len(telemetry_dict) > 1:
-            plot_driver_comparison(telemetry_dict)
-        
-        # Convert numpy types to Python native types
-        speed_comparison_converted = {}
-        for driver, stats in speed_comparison.items():
-            speed_comparison_converted[driver] = {
-                "max_speed": float(stats['max_speed']),
-                "avg_speed": float(stats['avg_speed']),
-                "consistency": float(stats['speed_std'])
-            }
-        
-        race_pace_converted = {}
-        for driver, stats in race_pace.items():
-            race_pace_converted[driver] = {
-                "avg_pace": float(stats['avg_pace']),
-                "fastest_lap": float(stats['fastest_lap']),
-                "consistency": float(stats['consistency'])
-            }
-        
-        result = {
-            "speed_comparison": {
-                driver: {
-                    "max_speed": round(stats['max_speed'], 1),
-                    "avg_speed": round(stats['avg_speed'], 1),
-                    "consistency": round(stats['consistency'], 2)
-                }
-                for driver, stats in speed_comparison_converted.items()
-            },
-            "race_pace": {
-                driver: {
-                    "avg_pace": round(stats['avg_pace'], 2),
-                    "fastest_lap": round(stats['fastest_lap'], 2),
-                    "consistency": round(stats['consistency'], 2)
-                }
-                for driver, stats in race_pace_converted.items()
-            },
-            "plots": {
-                "comparison": "driver_comparison.png"
-            }
-        }
-        
-        return jsonify(result)
+        return jsonify(build_comparison(session, drivers))
     
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
-@app.route('/plots/<filename>')
-def serve_plot(filename):
-    """Serve plot images"""
-    plots_dir = os.path.join(project_root, 'plots')
-    return send_from_directory(plots_dir, filename)
-
-
 if __name__ == '__main__':
-    # Create plots directory if it doesn't exist
-    os.makedirs(os.path.join(project_root, 'plots'), exist_ok=True)
     app.run(debug=True, port=5000)

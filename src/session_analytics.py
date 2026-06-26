@@ -1,6 +1,20 @@
 """Session-level metrics used by the F1 MapFeed intelligence dashboard."""
 
+import math
+from numbers import Real
+
 import pandas as pd
+
+
+def json_safe(value):
+    """Convert non-finite numeric values into JSON-compatible ``None`` values."""
+    if isinstance(value, dict):
+        return {key: json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [json_safe(item) for item in value]
+    if isinstance(value, Real) and not isinstance(value, bool):
+        return float(value) if not math.isfinite(value) else value
+    return value
 
 
 def _seconds(value):
@@ -38,6 +52,7 @@ def driver_directory(session):
             "code": str(info.get("Abbreviation", driver_number)),
             "name": str(info.get("FullName", "Unknown driver")),
             "team": str(info.get("TeamName", "Unknown team")),
+            "team_color": str(info.get("TeamColor", "")) or None,
             "number": str(info.get("DriverNumber", driver_number)),
         })
     return sorted(drivers, key=lambda driver: driver["code"])
@@ -49,7 +64,11 @@ def build_session_overview(session):
     rows = []
 
     try:
-        circuit_length_km = float(session.get_circuit_info().corners.iloc[-1]["Distance"]) / 1000
+        circuit_length_km = float(
+            session.get_circuit_info().corners.iloc[-1]["Distance"]
+        ) / 1000
+        if not math.isfinite(circuit_length_km) or circuit_length_km <= 0:
+            circuit_length_km = None
     except Exception:
         circuit_length_km = None
 
@@ -97,6 +116,7 @@ def build_session_overview(session):
             "average_speed": round(float(members["avg_speed"].dropna().mean()), 1) if members["avg_speed"].notna().any() else None,
             "consistency": round(float(members["consistency"].dropna().mean()), 1) if members["consistency"].notna().any() else None,
             "best_driver": best["code"],
+            "team_color": best.get("team_color"),
             "drivers": int(len(members)),
         })
     teams.sort(key=lambda row: row["average_pace"])
@@ -114,7 +134,18 @@ def build_session_overview(session):
     consistency_rows = [row for row in rows if row["consistency"] is not None]
     most_consistent = max(consistency_rows, key=lambda row: row["consistency"]) if consistency_rows else fastest
     best_team = teams[0] if teams else None
-    return {
+    winner = None
+    try:
+        result_rows = session.results
+        first = result_rows[result_rows["Position"].astype(str) == "1"]
+        if not first.empty:
+            winner_value = first.iloc[0].get("FullName")
+            if pd.isna(winner_value):
+                winner_value = first.iloc[0].get("Abbreviation")
+            winner = str(winner_value)
+    except Exception:
+        pass
+    return json_safe({
         "drivers": rows,
         "teams": teams,
         "sectors": sectors,
@@ -128,5 +159,6 @@ def build_session_overview(session):
             "best_team": best_team["team"] if best_team else None,
             "drivers_analysed": len(rows),
             "teams_analysed": len(teams),
+            "winner": winner,
         },
-    }
+    })

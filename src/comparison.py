@@ -107,7 +107,10 @@ def get_race_pace_analysis(session, driver_codes):
             driver_laps = session.laps.pick_drivers(driver_code)
             # Get lap times (filter out slow outliers like pit stops)
             lap_times = driver_laps["LapTime"].dt.total_seconds()
-            valid_laps = lap_times[lap_times < 100]  # Assuming lap < 100 seconds
+            if lap_times.empty:
+                continue
+            median = lap_times.median()
+            valid_laps = lap_times[(lap_times > median * .8) & (lap_times < median * 1.25)]
             
             pace_data[driver_code] = {
                 "avg_pace": valid_laps.mean(),
@@ -120,3 +123,39 @@ def get_race_pace_analysis(session, driver_codes):
             print(f"Could not analyze pace for {driver_code}: {e}")
     
     return pace_data
+
+
+def build_comparison(session, driver_codes):
+    """Two-driver, session-backed comparison with an interactive speed trace."""
+    telemetry = get_multiple_drivers_telemetry(session, driver_codes[:2])
+    pace = get_race_pace_analysis(session, driver_codes[:2])
+    rows, traces = [], []
+    for code, data in telemetry.items():
+        fastest = session.laps.pick_drivers(code).pick_fastest()
+        sector_values = [getattr(fastest, f"Sector{i}Time", None) for i in range(1, 4)]
+        sector_seconds = [float(value.total_seconds()) if pd.notna(value) else None for value in sector_values]
+        driver_pace = pace.get(code, {})
+        brake = data["Brake"] if "Brake" in data else pd.Series(dtype=float)
+        rows.append({"driver": code, "top_speed": round(float(data["Speed"].max()), 1),
+                     "average_speed": round(float(data["Speed"].mean()), 1),
+                     "fastest_lap": round(float(driver_pace.get("fastest_lap")), 3) if driver_pace.get("fastest_lap") else None,
+                     "race_pace": round(float(driver_pace.get("avg_pace")), 3) if driver_pace.get("avg_pace") else None,
+                     "consistency": round(float(driver_pace.get("consistency")), 3) if driver_pace.get("consistency") else None,
+                     "sectors": sector_seconds, "throttle_usage": round(float(data["Throttle"].mean()), 1),
+                     "brake_usage": round(float(brake.mean()), 1) if not brake.empty else None})
+        traces.append({"x": data["Distance"].tolist(), "y": data["Speed"].tolist(), "type": "scatter", "mode": "lines", "name": code})
+    if len(rows) < 2:
+        raise ValueError("Telemetry is not available for at least two selected drivers.")
+    # Lower lap time and variation are better. Scores are relative only to the
+    # selected pair, preventing a synthetic global ranking.
+    for metric, higher_better in (("top_speed", True), ("average_speed", True), ("fastest_lap", False), ("race_pace", False), ("consistency", False), ("throttle_usage", True)):
+        values = [row[metric] for row in rows]
+        if None in values or len(set(values)) == 1:
+            continue
+        winner = values.index(max(values) if higher_better else min(values))
+        rows[winner].setdefault("_wins", 0); rows[winner]["_wins"] += 1
+    for row in rows:
+        row["score"] = round(50 + 50 * row.pop("_wins", 0) / 6)
+    figure = {"data": traces, "layout": {"template": "plotly_dark", "title": "Speed trace", "xaxis": {"title": "Distance (m)"}, "yaxis": {"title": "Speed (km/h)"}, "margin": {"l": 35, "r": 20, "t": 50, "b": 35}, "legend": {"title": {"text": "Driver"}}}}
+    rows.sort(key=lambda row: row["score"], reverse=True)
+    return {"drivers": rows, "winner": rows[0]["driver"], "chart": figure}

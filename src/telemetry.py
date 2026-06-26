@@ -1,17 +1,16 @@
+"""Helpers for retrieving a selected driver's fastest-lap data."""
+
+
 def get_fastest_lap_telemetry(session, driver_code):
+    """Return car telemetry, including distance, for a driver's fastest lap."""
+    return get_fastest_lap(session, driver_code).get_telemetry().add_distance()
 
-    driver_laps = session.laps.pick_drivers(driver_code)
-
-    fastest_lap = driver_laps.pick_fastest()
-
-    telemetry = fastest_lap.get_car_data().add_distance()
-
-    return telemetry
 
 def get_fastest_lap(session, driver_code):
+    """Return a driver's fastest valid lap or raise a clear data error."""
+    fastest_lap = session.laps.pick_drivers(driver_code).pick_fastest()
 
-    driver_laps = session.laps.pick_drivers(
-        driver_code
-    )
+    if fastest_lap is None:
+        raise ValueError(f"No valid timed lap is available for {driver_code}.")
 
-    return driver_laps.pick_fastest()
+    return fastest_lap

@@ -327,6 +327,16 @@ tr:last-child td {
     border-color: #69758b;
 }
 
+.analytics-driver-card { cursor: pointer; }
+.analytics-driver-card:hover { border-color: #69758b; }
+.analytics-driver-card b { font-size: 20px; }
+.analytics-driver-card span { color: var(--muted); display: block; margin: 5px 0 16px; }
+.compare-controls { display: flex; gap: 10px; flex-wrap: wrap; margin: 0 0 18px; }
+.compare-controls select { background: #0d1119; border: 1px solid var(--line); color: #fff; border-radius: 5px; padding: 8px; }
+.compare-controls button { background: var(--red); color: white; border: 0; border-radius: 5px; font-weight: 700; padding: 8px 16px; cursor: pointer; }
+.chart { min-height: 360px; width: 100%; }
+.nav-item[data-view="historical"], .nav-item[data-view="explorer"] { display: none; }
+
 .driver-card b {
     font-size: 20px;
 }
